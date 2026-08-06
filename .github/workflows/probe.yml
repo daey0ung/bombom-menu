@@ -1,0 +1,86 @@
+name: probe-naver-access
+
+# Phase 0 게이트: GitHub Actions 러너(해외 IP)에서 네이버 플레이스 소식에
+# 접근 가능한지 검증한다. 통과 후 삭제 예정.
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe m.place.naver.com feed
+        run: |
+          python3 - <<'PY'
+          import json, re, sys, urllib.request, urllib.error
+          from datetime import datetime, timezone, timedelta
+
+          URL = "https://m.place.naver.com/restaurant/2096511528/feed"
+          KST = timezone(timedelta(hours=9))
+          today = datetime.now(KST).strftime("%Y%m%d")
+          print(f"runner UTC={datetime.now(timezone.utc):%Y-%m-%d %H:%M}  KST today={today}")
+
+          VARIANTS = [
+              ("mobile-safari", {
+                  "User-Agent": ("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
+                                 "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 "
+                                 "Mobile/15E148 Safari/604.1"),
+                  "Referer": "https://m.search.naver.com/",
+              }),
+              ("mobile-safari+ko", {
+                  "User-Agent": ("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
+                                 "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 "
+                                 "Mobile/15E148 Safari/604.1"),
+                  "Referer": "https://m.search.naver.com/",
+                  "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
+                  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+              }),
+              ("android-chrome+ko", {
+                  "User-Agent": ("Mozilla/5.0 (Linux; Android 14; SM-S918N) AppleWebKit/537.36 "
+                                 "(KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"),
+                  "Referer": "https://m.search.naver.com/",
+                  "Accept-Language": "ko-KR,ko;q=0.9",
+              }),
+          ]
+
+          ok = False
+          for name, headers in VARIANTS:
+              print(f"\n=== variant: {name} ===")
+              try:
+                  req = urllib.request.Request(URL, headers=headers)
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      status, html = r.status, r.read().decode("utf-8", "replace")
+              except urllib.error.HTTPError as e:
+                  print(f"  HTTPError {e.code} — blocked")
+                  continue
+              except Exception as e:
+                  print(f"  {type(e).__name__}: {e}")
+                  continue
+
+              print(f"  http={status} size={len(html)}")
+              if "__APOLLO_STATE__" not in html:
+                  print("  no __APOLLO_STATE__ (captcha/interstitial?)")
+                  print("  snippet:", html[:300].replace("\n", " "))
+                  continue
+
+              m = re.search(r"window\.__APOLLO_STATE__\s*=\s*(\{)", html)
+              obj, _ = json.JSONDecoder().raw_decode(html[m.start(1):])
+              feeds = [v for v in obj.values()
+                       if isinstance(v, dict) and v.get("__typename") == "Feed"
+                       and not v.get("isDeleted")]
+              feeds.sort(key=lambda f: f.get("createdString") or "", reverse=True)
+              print(f"  feeds={len(feeds)}  latest={[f['createdString'] for f in feeds[:5]]}")
+
+              hit = next((f for f in feeds if f.get("createdString") == today), None)
+              if hit:
+                  print(f"  TODAY FOUND: {hit['title']}")
+                  print(f"  image: {(hit.get('thumbnail') or {}).get('url')}")
+              else:
+                  print(f"  today ({today}) not posted yet — parsing itself works")
+              ok = True
+              break
+
+          print("\n==================================")
+          print("RESULT:", "PASS - Actions can reach Naver" if ok else "FAIL - all variants blocked")
+          sys.exit(0 if ok else 1)
+          PY
