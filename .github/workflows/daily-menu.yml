@@ -40,7 +40,9 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          show_full_output: true   # 진단용 - 안정화되면 제거
+          # Read/Write 두 개만 허용하면 Claude가 다른 툴을 시도하다 거부당하며
+          # 턴을 소진해 실패한다. 실제로 쓰는 건 Read 1회 + Write 1회지만
+          # 여유를 둬야 안정적으로 끝난다.
           claude_args: |
             --allowedTools "Read,Write,Glob,Grep,TodoWrite"
             --max-turns 15
