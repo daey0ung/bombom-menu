@@ -1,0 +1,76 @@
+name: daily-menu
+
+on:
+  schedule:
+    # KST 09:50 / 10:50 / 11:50, 월~토 (일요일 휴무).
+    # 매장 게시 시각은 실측 ~09:20 KST 였으나 변동에 대비해 3회 시도한다.
+    # 2·3회차는 fetch_menu.py의 멱등성 가드로 즉시 no-op이 된다.
+    - cron: '50 0,1,2 * * 1-6'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-menu
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install deps
+        run: pip install -q -r requirements.txt
+
+      - name: Fetch today's menu image
+        id: fetch
+        run: python scripts/fetch_menu.py
+
+      - name: OCR menu image
+        if: steps.fetch.outputs.found == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python scripts/ocr_menu.py
+
+      - name: Render pages
+        if: steps.fetch.outputs.found == 'true'
+        run: python scripts/render.py
+
+      - name: Commit and push
+        if: steps.fetch.outputs.found == 'true'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs
+          if git diff --staged --quiet; then
+            echo "no changes to commit"
+          else
+            git commit -m "menu: ${{ steps.fetch.outputs.date }}"
+            git push
+          fi
+
+      - name: Notify Teams
+        if: steps.fetch.outputs.found == 'true'
+        env:
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+        run: python scripts/notify_teams.py
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### 봄봄 메뉴 ${{ steps.fetch.outputs.date }}"
+            if [ "${{ steps.fetch.outputs.found }}" = "true" ]; then
+              echo "새 메뉴를 게시했습니다 — ${{ steps.fetch.outputs.title }}"
+            elif [ "${{ steps.fetch.outputs.already }}" = "true" ]; then
+              echo "오늘 메뉴는 이미 게시되어 있습니다 (중복 실행 방지)."
+            else
+              echo "오늘 게시물이 없습니다 (휴무 또는 아직 미게시)."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
