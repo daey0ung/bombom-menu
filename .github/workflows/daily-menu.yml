@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write   # claude-code-action이 요구
 
 concurrency:
   group: daily-menu
@@ -24,19 +25,52 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
-      - name: Install deps
-        run: pip install -q -r requirements.txt
+        # 스크립트는 표준 라이브러리만 쓴다 - 설치할 의존성 없음
 
       - name: Fetch today's menu image
         id: fetch
         run: python scripts/fetch_menu.py
 
+      # OCR은 Claude 구독(OAuth 토큰)으로 실행된다. API 크레딧을 쓰지 않는다.
+      # 토큰이 없거나 실패해도 아래 continue-on-error로 넘어가 이미지만 게시된다.
       - name: OCR menu image
         if: steps.fetch.outputs.found == 'true'
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: python scripts/ocr_menu.py
+        continue-on-error: true
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          claude_args: |
+            --allowedTools "Read,Write"
+            --max-turns 6
+          prompt: |
+            docs/${{ steps.fetch.outputs.image_rel }} 는 한식뷔페 '봄봄'의
+            오늘의 메뉴 포스터 이미지다. Read 도구로 이 이미지를 열어 적힌 글자를
+            그대로 옮긴 뒤, Write 도구로 docs/data/${{ steps.fetch.outputs.date }}.json
+            파일 하나만 만들어라.
+
+            JSON 형식 (아래 키만, 추가 키 금지):
+            {
+              "date": "${{ steps.fetch.outputs.date }}",
+              "weekday": "요일 한 글자",
+              "special": ["특식 항목", "..."],
+              "side": ["기본찬 항목", "..."],
+              "dessert": ["후식 항목", "..."],
+              "notice": "포스터 하단 안내 문구"
+            }
+
+            규칙:
+            - special 은 '특 · 식 / SPECIAL MENU', side 는 '기본찬 / SIDE DISHES',
+              dessert 는 '후 · 식 / DESSERT' 영역이다.
+            - 메뉴명은 포스터에 인쇄된 표기를 정확히 따른다. 띄어쓰기와 '&' 기호도
+              그대로 두고, 표준어로 고치거나 순서를 바꾸지 않는다.
+            - 장식용 음식 사진에 붙은 글자나 매장 로고는 메뉴 항목이 아니다.
+            - notice 가 없으면 빈 문자열로 둔다.
+            - 파일을 쓴 뒤에는 아무것도 하지 마라. git 명령이나 커밋은 하지 마라.
+
+      - name: Validate OCR output
+        if: steps.fetch.outputs.found == 'true'
+        run: python scripts/validate_menu.py
 
       - name: Render pages
         if: steps.fetch.outputs.found == 'true'
@@ -67,7 +101,7 @@ jobs:
           {
             echo "### 봄봄 메뉴 ${{ steps.fetch.outputs.date }}"
             if [ "${{ steps.fetch.outputs.found }}" = "true" ]; then
-              echo "새 메뉴를 게시했습니다 — ${{ steps.fetch.outputs.title }}"
+              echo "새 메뉴를 게시했습니다 - ${{ steps.fetch.outputs.title }}"
             elif [ "${{ steps.fetch.outputs.already }}" = "true" ]; then
               echo "오늘 메뉴는 이미 게시되어 있습니다 (중복 실행 방지)."
             else
