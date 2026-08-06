@@ -40,14 +40,17 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          show_full_output: true   # 진단용 - 안정화되면 제거
           claude_args: |
-            --allowedTools "Read,Write"
-            --max-turns 6
+            --allowedTools "Read,Write,Glob,Grep,TodoWrite"
+            --max-turns 15
           prompt: |
             docs/${{ steps.fetch.outputs.image_rel }} 는 한식뷔페 '봄봄'의
             오늘의 메뉴 포스터 이미지다. Read 도구로 이 이미지를 열어 적힌 글자를
             그대로 옮긴 뒤, Write 도구로 docs/data/${{ steps.fetch.outputs.date }}.json
             파일 하나만 만들어라.
+
+            경로는 위에 적힌 그대로다. 파일을 찾으려고 탐색하지 말고 바로 Read 하라.
 
             JSON 형식 (아래 키만, 추가 키 금지):
             {
