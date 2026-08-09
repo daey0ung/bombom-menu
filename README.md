@@ -105,6 +105,20 @@ OCR 단계는 `continue-on-error: true`다. OCR 패키지 오류, 모델 다운�
 워크플로에는 Teams Action이 없다. 테스트가 끝난 뒤 Teams를 추가할 때는 별도 변경으로
 다루고, 웹후크 URL은 반드시 Repository Secret에 저장해야 한다.
 
+## 웹사이트로 확인하기 (GitHub Pages)
+
+GitHub Pages는 저장소의 HTML 파일을 공개 웹사이트로 보여 주는 GitHub 기능이다.
+이 프로젝트는 `Run workflow`가 끝날 때 `docs` 폴더를 Pages에 직접 배포한다.
+
+- 사이트: https://daey0ung.github.io/bombom-menu/
+- 설정: `Settings` → `Pages` → `Build and deployment` → `Source: GitHub Actions`
+- 별도 API Key나 Repository Secret은 필요하지 않다.
+- Teams 알림과는 연결되어 있지 않다.
+
+현재처럼 공개 저장소에서 GitHub Free의 기본 제공 Actions/Pages 범위로 실행하면
+별도 Pages 요금은 없다. 사용량과 정책은 계정·저장소 유형에 따라 달라질 수 있으므로
+저장소의 `Settings` → `Billing and licensing`에서 확인할 수 있다.
+
 ## 자격증 학습
 
 코드와 워크플로의 `GH-300`, `AI-103`, `AB-100` 주석은 각 개념이 실제 자동화에서

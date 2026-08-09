@@ -5,10 +5,12 @@ name: daily-menu-manual
 on:
   workflow_dispatch:
 
-# GH-300 최소 권한 원칙: docs 결과를 현재 브랜치에 push하는 권한만 요청한다.
-# Claude/OpenAI/Teams Secret은 사용하지 않으며 id-token 권한도 필요 없다.
+# GH-200 최소 권한 원칙: 결과 push와 Pages 배포에 필요한 권한만 요청한다.
+# id-token은 비밀값이 아니라 GitHub가 Pages 배포 신원을 확인하는 단기 토큰이다.
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 # 같은 브랜치에서 버튼을 여러 번 눌러도 한 번에 하나만 실행한다.
 concurrency:
@@ -18,6 +20,10 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # Power Automate의 Connection처럼 GitHub가 배포 대상과 결과 URL을 관리한다.
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       # GH-300: Action은 외부 코드이므로 운영 환경에서는 commit SHA 고정도 검토한다.
       - name: Checkout selected branch
@@ -85,6 +91,20 @@ jobs:
             git commit -m "menu: ${{ steps.fetch.outputs.date }}"
             git push
           fi
+
+      # GH-200: docs 폴더를 배포용 artifact로 만들고 GitHub Pages에 게시한다.
+      # 메뉴가 없는 날에도 기존 docs를 게시하므로 Run workflow로 사이트를 확인할 수 있다.
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload docs as Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: docs
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
 
       # Teams 단계는 의도적으로 없다. 테스트 완료 후 별도 승인으로 추가한다.
       - name: No-new-menu summary
