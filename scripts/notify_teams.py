@@ -4,7 +4,6 @@ Power Automate 'Workflows'의 "웹후크 요청을 받으면 채널에 게시" �
 HTTPS URL을 TEAMS_WEBHOOK_URL 시크릿에 넣어 두면 된다. 관리자 승인이 필요 없고
 브라우저 자동화도 필요 없다.
 """
-import argparse
 import json
 import os
 import sys
@@ -68,19 +67,12 @@ def build_card(date_iso: str, title: str, image_rel: str, menu: dict | None) -> 
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--date",
-        help="시험 게시할 기존 메뉴 날짜(YYYY-MM-DD). 생략하면 오늘 날짜를 사용한다.",
-    )
-    args = parser.parse_args()
-
     url = os.environ.get("TEAMS_WEBHOOK_URL", "").strip()
     if not url:
         print("TEAMS_WEBHOOK_URL 미설정 — Teams 알림 건너뜀 (Pages 게시는 계속됨)")
         return 0
 
-    date_iso = args.date or iso(today_kst())
+    date_iso = iso(today_kst())
     images = sorted(MENU_DIR.glob(f"{date_iso}.*"))
     if not images:
         print(f"no image for {date_iso} — 알림 없음")
