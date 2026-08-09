@@ -1,74 +1,112 @@
-# 봄봄 메뉴 자동 게시
+# 봄봄 메뉴 수동 게시 — 무료 PaddleOCR 버전
 
-봄봄 한식뷔페 구로디지털단지점의 오늘의 메뉴를 매일 자동으로 수집해
-GitHub Pages에 게시하고 Teams 채널로 알린다.
+봄봄 한식뷔페 구로디지털단지점의 메뉴 이미지를 네이버 플레이스에서 받아
+무료 로컬 OCR로 판독하고 GitHub에 게시한다.
 
-- 페이지: https://lepela.github.io/bombom-menu/
-- 원문 출처: [네이버 플레이스 — 봄봄 한식뷔페 구로디지털단지점](https://m.place.naver.com/restaurant/2096511528/feed)
+- 원문: [네이버 플레이스](https://m.place.naver.com/restaurant/2096511528/feed)
+- 결과: `docs/index.html`, `docs/archive.html`, `docs/latest-menu.txt`
+- 비용: 외부 AI API를 호출하지 않는다. 공개 저장소의 표준 GitHub-hosted runner는
+  GitHub 정책상 무료다.
+- Teams: 현재 완전히 비활성화되어 있다.
 
-## 동작
+## 실행 흐름
 
-```
-09:50 / 10:50 / 11:50 KST (월~토)
-  └ fetch_menu.py      네이버 소식에서 오늘 이미지 다운로드
-      └ claude-code-action  이미지를 읽어 메뉴 JSON 작성 (구독 인증)
-          └ validate_menu.py    JSON 스키마 검증, 깨졌으면 폐기
-              └ render.py       index.html / archive.html 생성
-                  └ commit & push → GitHub Pages
-                      └ notify_teams.py  Adaptive Card 게시
-```
+Power Automate 용어와 나란히 보면 다음과 같다.
 
-파이썬 스크립트는 표준 라이브러리만 쓴다. 설치할 의존성이 없다.
-
-브라우저 자동화는 쓰지 않는다. 소식 페이지 HTML에 `window.__APOLLO_STATE__`로
-데이터가 임베드되어 있어 GET 한 번으로 끝난다.
-
-**이미지와 텍스트는 병기한다.** 원본 포스터가 항상 함께 실리므로 OCR이 실패하거나
-일부 틀려도 페이지는 온전하고, 판독 결과에 대한 사람 검수 단계가 필요 없다.
-
-## 설정
-
-둘 다 **Repository secret** 이다 (Settings → Secrets and variables → Actions →
-Repository secrets). Environment secret 쪽에 넣으면 job이 읽지 못한다.
-
-| 항목 | 값을 얻는 법 | 없을 때 |
+| 프로젝트 단계 | Power Automate | 역할 |
 |---|---|---|
-| GitHub Pages | Settings → Pages → `main` 브랜치 `/docs` | 게시 안 됨 |
-| `CLAUDE_CODE_OAUTH_TOKEN` | 터미널에서 `claude setup-token` | OCR만 생략, 이미지 게시는 계속 |
-| `TEAMS_WEBHOOK_URL` | 아래 참고 | Teams 알림만 생략, Pages 게시는 계속 |
+| `workflow_dispatch` | Trigger | 사용자가 Run workflow를 눌러 시작 |
+| `fetch_menu.py` | HTTP Action | 오늘 네이버 이미지 수집 |
+| `ocr_menu.py` | AI/Computer Vision Action | 로컬 PaddleOCR로 글자와 좌표 인식 |
+| `validate_menu.py` | Condition | JSON이 안전한 형식인지 검사 |
+| `render.py` | Create file Action | HTML 생성 |
+| `write_summary.py` | Compose Action | 텍스트와 Actions Summary 생성 |
+| `git push` | Update file Action | 선택한 브랜치에 결과 저장 |
 
-**OCR은 Claude 구독으로 돌린다.** `claude setup-token`으로 발급한 OAuth 토큰을 쓰면
-API 크레딧이 아니라 구독 한도에서 차감된다 (Pro/Max/Team/Enterprise). 토큰은 발급한
-사람의 구독에 묶이므로 조직 공유 용도로는 맞지 않는다. `ANTHROPIC_API_KEY`는 쓰지 않는다.
-
-Teams 웹훅은 대상 채널 → `⋯` → **워크플로(Workflows)** →
-"웹후크 요청을 받으면 채널에 게시" 템플릿으로 만든다. 관리자 승인이 필요 없다.
-
-## 구현상 주의점
-
-수집 대상 페이지의 실제 동작에서 확인한 것들이라, 손대기 전에 읽어 두는 게 좋다.
-
-- **날짜 판정은 `createdString`으로만 한다.** 매장이 제목에 오타를 내는 일이 있다
-  (7/25 게시물 제목이 "9월 25일"로 적혀 있었다). `title`은 표시용이다.
-- **User-Agent 헤더가 필수다.** 없이 요청하면 HTTP 429로 막힌다.
-- **확장자를 믿지 않는다.** URL은 `.jpg`인데 실제 바이트는 PNG인 경우가 있어
-  매직 바이트로 판정한다.
-- **날짜는 KST로 계산한다.** 러너는 UTC로 돈다.
-- **게시물이 없는 날은 실패가 아니다.** 일요일 휴무와 미게시를 정상 종료로 처리한다.
-- `robots.txt`가 `Disallow: /`이므로 요청은 하루 1회로 제한하고, 페이지에 출처를
-  명시한다. 사내 참고용 이상으로 쓰지 않는다.
-
-- **OCR 결과는 신뢰하지 말고 검증한다.** Claude가 파일로 직접 쓰는 방식이라 스키마가
-  강제되지 않는다. `validate_menu.py`가 형식을 확인하고, 깨졌으면 파일을 지워
-  '이미지만' 경로로 되돌린다.
-
-## 로컬 실행
-
-```sh
-python scripts/fetch_menu.py    # 오늘 이미지 수집 (이미 있으면 no-op)
-python scripts/render.py        # docs/*.html 생성
+```text
+Run workflow
+  -> 오늘 이미지 확인
+  -> PaddleOCR(로컬 CPU, API Key 없음)
+  -> 좌표로 특식/기본찬/후식 분류
+  -> JSON 검증
+     -> 성공: 이미지 + 메뉴 텍스트
+     -> 실패: 이미지 전용 fallback
+  -> HTML + docs/latest-menu.txt + Actions Summary
+  -> 현재 선택한 브랜치에 push
 ```
 
-OCR은 GitHub Actions에서 `claude-code-action`이 담당한다. 로컬에서 붙이고 싶으면
-Claude Code로 `docs/menu/<날짜>.png`를 읽어 `docs/data/<날짜>.json`을 쓰게 한 뒤
-`python scripts/validate_menu.py`를 돌리면 된다.
+자동 `schedule`은 없다. 같은 날짜 이미지를 이미 가지고 있으면 중복 실행 방지 로직이
+정상 종료한다.
+
+## GitHub에서 수동 실행
+
+1. 저장소의 **Actions** 탭을 연다.
+2. **daily-menu-manual** 워크플로를 선택한다.
+3. **Run workflow**를 누른다.
+4. 테스트 중에는 `codex/dy_modify01` 브랜치를 선택한다.
+5. 실행 후 **Summary** 또는 `docs/latest-menu.txt`를 확인한다.
+
+`workflow_dispatch` 버튼이 보이려면 해당 워크플로가 기본 브랜치에도 존재해야 한다.
+이 프로젝트는 기존 워크플로에 이미 수동 Trigger가 있었다.
+
+## 로컬 설치와 회귀 테스트
+
+Python 3.12 기준 CPU 버전이다. 가상환경 사용을 권장한다.
+
+```powershell
+python -m venv .venv-paddleocr
+.\.venv-paddleocr\Scripts\Activate.ps1
+python -m pip install paddlepaddle==3.2.0 `
+  -i https://www.paddlepaddle.org.cn/packages/stable/cpu/
+python -m pip install -r requirements-ocr.txt
+```
+
+기존 이미지 세 장을 정답 JSON과 비교한다.
+
+```powershell
+$env:PADDLE_PDX_MODEL_SOURCE = "BOS"
+python scripts/evaluate_ocr.py
+```
+
+최초 실행은 공개 OCR 모델을 다운로드하므로 오래 걸린다. GitHub Actions에서는 모델
+디렉터리를 캐시해 다음 실행부터 재사용한다.
+
+## OCR 설계와 한계
+
+- `PP-OCRv5_mobile_det`: 실행 시간을 줄인 경량 글자 검출 모델
+- `korean_PP-OCRv5_mobile_rec`: 검출된 줄의 한글을 읽는 경량 인식 모델
+- 신뢰도 0.55 미만 결과는 버린다.
+- 포스터 상대 좌표로 왼쪽 특식, 오른쪽 기본찬/후식을 구분한다.
+- 기존 이미지에서 반복 확인된 메뉴 단어의 오인식만 제한적으로 교정한다.
+- 모르는 단어를 추측하지 않는다. 결과가 이상하면 원본 이미지가 최종 기준이다.
+
+서버 검출 모델도 비교했지만 기존 이미지 3장에 5분 이상 걸려 기본값에서 제외했다.
+모바일 모델은 훨씬 빠르지만 일부 긴 메뉴 줄의 앞뒤 단어를 놓칠 수 있다.
+
+새 포스터 디자인이 나오면 `scripts/ocr_menu.py`의 `classify()` 상대 좌표를 조정해야
+한다. 무료 OCR은 생성형 AI처럼 문맥을 이해하지 않으므로 사람 확인이 권장된다.
+
+## 실패 안전 설계
+
+OCR 단계는 `continue-on-error: true`다. OCR 패키지 오류, 모델 다운로드 오류 또는
+판독 오류가 나도 다음 단계로 간다. `validate_menu.py`는 깨진 JSON을 제거하고,
+`render.py`는 JSON이 없으면 원본 이미지만 포함한 페이지를 만든다.
+
+따라서 OCR 실패가 이미지 게시 실패로 번지지 않는다.
+
+## Secret과 Teams
+
+현재 필요한 외부 AI Secret은 없다.
+
+- `CLAUDE_CODE_OAUTH_TOKEN`: 사용하지 않음
+- `OPENAI_API_KEY`: 사용하지 않음
+- `TEAMS_WEBHOOK_URL`: 사용하지 않음
+
+워크플로에는 Teams Action이 없다. 테스트가 끝난 뒤 Teams를 추가할 때는 별도 변경으로
+다루고, 웹후크 URL은 반드시 Repository Secret에 저장해야 한다.
+
+## 자격증 학습
+
+코드와 워크플로의 `GH-300`, `AI-103`, `AB-100` 주석은 각 개념이 실제 자동화에서
+어디에 나타나는지 표시한다. 자세한 매핑은 [docs/cert-study.md](docs/cert-study.md)를
+참고한다.

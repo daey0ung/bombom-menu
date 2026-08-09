@@ -1,0 +1,3 @@
+# PaddlePaddle is installed separately from its official CPU wheel index.
+# Keep the OCR package pinned so local and GitHub Actions runs are reproducible.
+paddleocr==3.7.0

@@ -1,90 +1,82 @@
-name: daily-menu
+name: daily-menu-manual
 
+# GH-300: workflow_dispatch는 사용자가 Run workflow 버튼을 눌렀을 때만 시작되는 Trigger다.
+# schedule을 두지 않았으므로 정해진 시간에 자동 실행되지 않는다.
 on:
-  schedule:
-    # KST 09:50 / 10:50 / 11:50, 월~토 (일요일 휴무).
-    # 매장 게시 시각은 실측 ~09:20 KST 였으나 변동에 대비해 3회 시도한다.
-    # 2·3회차는 fetch_menu.py의 멱등성 가드로 즉시 no-op이 된다.
-    - cron: '50 0,1,2 * * 1-6'
   workflow_dispatch:
 
+# GH-300 최소 권한 원칙: docs 결과를 현재 브랜치에 push하는 권한만 요청한다.
+# Claude/OpenAI/Teams Secret은 사용하지 않으며 id-token 권한도 필요 없다.
 permissions:
   contents: write
-  id-token: write   # claude-code-action이 요구
 
+# 같은 브랜치에서 버튼을 여러 번 눌러도 한 번에 하나만 실행한다.
 concurrency:
-  group: daily-menu
+  group: daily-menu-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # GH-300: Action은 외부 코드이므로 운영 환경에서는 commit SHA 고정도 검토한다.
+      - name: Checkout selected branch
+        uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-        # 스크립트는 표준 라이브러리만 쓴다 - 설치할 의존성 없음
+          cache: pip
+          cache-dependency-path: requirements-ocr.txt
+
+      # AI-103: 로컬 CPU 추론 엔진과 OCR 기능만 설치한다. 외부 AI API 요금은 없다.
+      - name: Install free local OCR
+        run: |
+          python -m pip install paddlepaddle==3.2.0 \
+            -i https://www.paddlepaddle.org.cn/packages/stable/cpu/
+          python -m pip install -r requirements-ocr.txt
+
+      # 첫 실행은 모델을 내려받고, 이후 실행은 캐시를 재사용한다.
+      # GH-300: cache key가 바뀌면 새 캐시가 만들어지며 Secret은 캐시하면 안 된다.
+      - name: Restore PaddleOCR model cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/paddlex-cache
+          key: paddleocr-${{ runner.os }}-ppocrv5-mobile-det-korean-mobile-rec-v1
 
       - name: Fetch today's menu image
         id: fetch
         run: python scripts/fetch_menu.py
 
-      # OCR은 Claude 구독(OAuth 토큰)으로 실행된다. API 크레딧을 쓰지 않는다.
-      # 토큰이 없거나 실패해도 아래 continue-on-error로 넘어가 이미지만 게시된다.
-      - name: OCR menu image
+      # AB-100: OCR 실패를 전체 프로세스 실패로 만들지 않는 fallback 설계다.
+      # JSON이 없으면 뒤의 검증/렌더 단계가 이미지 전용 결과를 만든다.
+      - name: Read menu with PaddleOCR
         if: steps.fetch.outputs.found == 'true'
         continue-on-error: true
-        uses: anthropics/claude-code-action@v1
-        with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          # Read/Write 두 개만 허용하면 Claude가 다른 툴을 시도하다 거부당하며
-          # 턴을 소진해 실패한다. 실제로 쓰는 건 Read 1회 + Write 1회지만
-          # 여유를 둬야 안정적으로 끝난다.
-          claude_args: |
-            --allowedTools "Read,Write,Glob,Grep,TodoWrite"
-            --max-turns 15
-          prompt: |
-            docs/${{ steps.fetch.outputs.image_rel }} 는 한식뷔페 '봄봄'의
-            오늘의 메뉴 포스터 이미지다. Read 도구로 이 이미지를 열어 적힌 글자를
-            그대로 옮긴 뒤, Write 도구로 docs/data/${{ steps.fetch.outputs.date }}.json
-            파일 하나만 만들어라.
-
-            경로는 위에 적힌 그대로다. 파일을 찾으려고 탐색하지 말고 바로 Read 하라.
-
-            JSON 형식 (아래 키만, 추가 키 금지):
-            {
-              "date": "${{ steps.fetch.outputs.date }}",
-              "weekday": "요일 한 글자",
-              "special": ["특식 항목", "..."],
-              "side": ["기본찬 항목", "..."],
-              "dessert": ["후식 항목", "..."],
-              "notice": "포스터 하단 안내 문구"
-            }
-
-            규칙:
-            - special 은 '특 · 식 / SPECIAL MENU', side 는 '기본찬 / SIDE DISHES',
-              dessert 는 '후 · 식 / DESSERT' 영역이다.
-            - 메뉴명은 포스터에 인쇄된 표기를 정확히 따른다. 띄어쓰기와 '&' 기호도
-              그대로 두고, 표준어로 고치거나 순서를 바꾸지 않는다.
-            - 장식용 음식 사진에 붙은 글자나 매장 로고는 메뉴 항목이 아니다.
-            - notice 가 없으면 빈 문자열로 둔다.
-            - 파일을 쓴 뒤에는 아무것도 하지 마라. git 명령이나 커밋은 하지 마라.
+        env:
+          PADDLE_PDX_CACHE_HOME: ${{ runner.temp }}/paddlex-cache
+          PADDLE_PDX_MODEL_SOURCE: BOS
+        run: |
+          python scripts/ocr_menu.py \
+            --image "docs/${{ steps.fetch.outputs.image_rel }}" \
+            --date "${{ steps.fetch.outputs.date }}" \
+            --output "docs/data/${{ steps.fetch.outputs.date }}.json"
 
       - name: Validate OCR output
         if: steps.fetch.outputs.found == 'true'
         run: python scripts/validate_menu.py
 
-      - name: Render pages
-        if: steps.fetch.outputs.found == 'true'
-        run: python scripts/render.py
-
-      - name: Commit and push
+      - name: Render pages and readable summary
         if: steps.fetch.outputs.found == 'true'
         run: |
-          git config user.name  "github-actions[bot]"
+          python scripts/render.py
+          python scripts/write_summary.py
+
+      - name: Commit results to the selected branch
+        if: steps.fetch.outputs.found == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add docs
           if git diff --staged --quiet; then
@@ -94,22 +86,17 @@ jobs:
             git push
           fi
 
-      - name: Notify Teams
-        if: steps.fetch.outputs.found == 'true'
-        env:
-          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
-        run: python scripts/notify_teams.py
-
-      - name: Summary
-        if: always()
+      # Teams 단계는 의도적으로 없다. 테스트 완료 후 별도 승인으로 추가한다.
+      - name: No-new-menu summary
+        if: steps.fetch.outputs.found != 'true'
         run: |
           {
-            echo "### 봄봄 메뉴 ${{ steps.fetch.outputs.date }}"
-            if [ "${{ steps.fetch.outputs.found }}" = "true" ]; then
-              echo "새 메뉴를 게시했습니다 - ${{ steps.fetch.outputs.title }}"
-            elif [ "${{ steps.fetch.outputs.already }}" = "true" ]; then
-              echo "오늘 메뉴는 이미 게시되어 있습니다 (중복 실행 방지)."
+            echo "## 봄봄 메뉴"
+            if [ "${{ steps.fetch.outputs.already }}" = "true" ]; then
+              echo "오늘 메뉴는 이미 처리되어 있습니다."
             else
-              echo "오늘 게시물이 없습니다 (휴무 또는 아직 미게시)."
+              echo "오늘 게시물이 없습니다."
             fi
+            echo ""
+            echo "Teams 알림은 현재 비활성화되어 있습니다."
           } >> "$GITHUB_STEP_SUMMARY"

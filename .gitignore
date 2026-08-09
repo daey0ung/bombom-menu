@@ -1,0 +1,9 @@
+# Local PaddleOCR test environment and Python bytecode are machine-specific.
+# GH-300 study note: keep generated dependencies out of source control; install
+# them reproducibly in the workflow instead.
+.venv-paddleocr/
+.paddlex-cache/
+.paddlex-cache-mobile/
+.paddlex-cache-server/
+__pycache__/
+*.py[cod]
