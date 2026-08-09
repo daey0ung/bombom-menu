@@ -2,6 +2,7 @@
 
 OCR JSON이 없어도 이미지만으로 온전한 페이지가 나오도록 설계했다.
 """
+import argparse
 import html
 import sys
 
@@ -46,6 +47,9 @@ li{padding:5px 0;border-bottom:1px dashed var(--line);font-size:.97rem}
 li:last-child{border-bottom:0}
 .notice{margin-top:16px;padding:12px 16px;background:var(--chip);
   border-radius:12px;color:var(--muted);font-size:.85rem;white-space:pre-line}
+.empty{text-align:center;padding:34px 20px;margin-top:22px;background:var(--card);
+  border:1px solid var(--line);border-radius:14px}
+.empty strong{display:block;font-size:1.08rem;margin-bottom:6px}
 footer{margin-top:28px;text-align:center;color:var(--muted);font-size:.8rem}
 footer a{color:var(--accent)}
 .nav{margin:18px 0 0;text-align:center}
@@ -146,6 +150,23 @@ def render_index(e: dict) -> str:
     return page(f"{e['title']} · {PLACE_NAME}", "\n".join(body))
 
 
+def render_no_menu(date_iso: str) -> str:
+    """오늘 이미지가 없을 때 과거 메뉴 대신 명확한 빈 상태를 표시한다."""
+    body = (
+        "<header>\n"
+        f'  <p class="place">{esc(PLACE_NAME)}</p>\n'
+        "  <h1>오늘의 메뉴</h1>\n"
+        f'  <p class="sub">{esc(date_iso)}</p>\n'
+        "</header>\n"
+        '<section class="empty">\n'
+        "  <strong>오늘 등록된 메뉴가 없습니다.</strong>\n"
+        "  <span>휴무일이거나 매장에서 아직 메뉴를 게시하지 않았습니다.</span>\n"
+        "</section>\n"
+        '<p class="nav"><a href="archive.html">지난 메뉴 보기 &rsaquo;</a></p>'
+    )
+    return page(f"오늘 등록된 메뉴 없음 · {PLACE_NAME}", body)
+
+
 def render_archive(es: list[dict]) -> str:
     items = "\n".join(
         f'  <li><a href="{esc(e["image"])}"><img src="{esc(e["image"])}" alt="" loading="lazy">'
@@ -165,16 +186,33 @@ def render_archive(es: list[dict]) -> str:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--date",
+        help="오늘 날짜(YYYY-MM-DD). 해당 날짜 이미지가 없으면 빈 화면을 만든다.",
+    )
+    args = parser.parse_args()
+
     es = entries()
-    if not es:
-        print("no menu images yet — nothing to render")
-        return 0
     DOCS.mkdir(parents=True, exist_ok=True)
-    (DOCS / "index.html").write_text(render_index(es[0]), encoding="utf-8")
+
+    # AB-100 Condition: 오늘 데이터가 있을 때만 메뉴를 표시한다.
+    # 과거 데이터는 archive.html에 보존하지만 index.html의 대체값으로 사용하지 않는다.
+    today_entry = next((e for e in es if e["date"] == args.date), None) if args.date else None
+    if args.date and not today_entry:
+        index_html = render_no_menu(args.date)
+        latest = f"{args.date} (no menu)"
+    elif es:
+        index_html = render_index(today_entry or es[0])
+        latest = (today_entry or es[0])["date"]
+    else:
+        index_html = render_no_menu(args.date or "메뉴 준비 중")
+        latest = "none"
+
+    (DOCS / "index.html").write_text(index_html, encoding="utf-8")
     (DOCS / "archive.html").write_text(render_archive(es), encoding="utf-8")
     (DOCS / ".nojekyll").write_text("", encoding="utf-8")
-    print(f"rendered index.html (latest={es[0]['date']}, ocr={'yes' if es[0]['menu'] else 'no'}) "
-          f"and archive.html ({len(es)} days)")
+    print(f"rendered index.html (latest={latest}) and archive.html ({len(es)} days)")
     return 0
 
 

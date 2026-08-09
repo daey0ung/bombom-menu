@@ -94,6 +94,10 @@ OCR 단계는 `continue-on-error: true`다. OCR 패키지 오류, 모델 다운�
 
 따라서 OCR 실패가 이미지 게시 실패로 번지지 않는다.
 
+오늘 네이버 게시물이 없으면 `index.html`에는 이전 날짜 메뉴 대신
+`오늘 등록된 메뉴가 없습니다`라는 안내가 표시된다. 과거 메뉴는 삭제하지 않고
+`archive.html`에서 계속 확인할 수 있다.
+
 ## Secret과 Teams
 
 현재 필요한 외부 AI Secret은 없다.

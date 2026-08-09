@@ -73,14 +73,17 @@ jobs:
         if: steps.fetch.outputs.found == 'true'
         run: python scripts/validate_menu.py
 
-      - name: Render pages and readable summary
+      # 메뉴가 없는 날도 오늘 날짜의 빈 화면을 만들어 과거 메뉴가 오늘 메뉴처럼 보이지 않게 한다.
+      - name: Render today's page
+        run: |
+          python scripts/render.py --date "${{ steps.fetch.outputs.date }}"
+
+      - name: Write readable menu summary
         if: steps.fetch.outputs.found == 'true'
         run: |
-          python scripts/render.py
           python scripts/write_summary.py
 
       - name: Commit results to the selected branch
-        if: steps.fetch.outputs.found == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
