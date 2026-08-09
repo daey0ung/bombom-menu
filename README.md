@@ -100,14 +100,17 @@ OCR 단계는 `continue-on-error: true`다. OCR 패키지 오류, 모델 다운�
 
 ## Secret과 Teams
 
-현재 필요한 외부 AI Secret은 없다.
+현재 필요한 외부 AI Secret은 없다. Teams 게시를 사용할 때만 기존 main에서 쓰던
+`TEAMS_WEBHOOK_URL` Repository Secret을 재사용한다.
 
 - `CLAUDE_CODE_OAUTH_TOKEN`: 사용하지 않음
 - `OPENAI_API_KEY`: 사용하지 않음
-- `TEAMS_WEBHOOK_URL`: 사용하지 않음
+- `TEAMS_WEBHOOK_URL`: Power Automate Workflow가 발급한 비공개채널 웹훅 URL
 
-워크플로에는 Teams Action이 없다. 테스트가 끝난 뒤 Teams를 추가할 때는 별도 변경으로
-다루고, 웹후크 URL은 반드시 Repository Secret에 저장해야 한다.
+Teams 단계는 새 메뉴가 발견됐을 때만 실행되며 실패해도 Pages 게시는 유지된다.
+과거 메뉴로 시험하려면 `Run workflow`에서 `teams_test_date`에 `2026-08-08`처럼 입력한다.
+빈칸으로 실행하면 중복 게시하지 않는다. 웹후크 URL은 코드나 로그가 아니라 반드시
+Repository Secret에 저장한다.
 
 ## 웹사이트로 확인하기 (GitHub Pages)
 

@@ -4,6 +4,11 @@ name: daily-menu-manual
 # schedule을 두지 않았으므로 정해진 시간에 자동 실행되지 않는다.
 on:
   workflow_dispatch:
+    inputs:
+      teams_test_date:
+        description: 'Teams 시험 게시 날짜(예: 2026-08-08, 평소에는 비워 둠)'
+        required: false
+        type: string
 
 # GH-200 최소 권한 원칙: 결과 push와 Pages 배포에 필요한 권한만 요청한다.
 # id-token은 비밀값이 아니라 GitHub가 Pages 배포 신원을 확인하는 단기 토큰이다.
@@ -109,7 +114,20 @@ jobs:
         id: deployment
         uses: actions/deploy-pages@v4
 
-      # Teams 단계는 의도적으로 없다. 테스트 완료 후 별도 승인으로 추가한다.
+      # AB-100 Connection: main에서 이미 검증한 Power Automate 웹훅을 Secret으로 재사용한다.
+      # 새 메뉴일 때만 자동 게시하며, 수동 시험 날짜를 넣은 경우에만 과거 메뉴를 다시 보낸다.
+      - name: Notify Teams private channel workflow
+        if: steps.fetch.outputs.found == 'true' || inputs.teams_test_date != ''
+        continue-on-error: true
+        env:
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+        run: |
+          if [ -n "${{ inputs.teams_test_date }}" ]; then
+            python scripts/notify_teams.py --date "${{ inputs.teams_test_date }}"
+          else
+            python scripts/notify_teams.py
+          fi
+
       - name: No-new-menu summary
         if: steps.fetch.outputs.found != 'true'
         run: |

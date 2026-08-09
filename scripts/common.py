@@ -33,10 +33,12 @@ DOCS = ROOT / "docs"
 MENU_DIR = DOCS / "menu"
 DATA_DIR = DOCS / "data"
 
-REPO = "lepela/bombom-menu"
-PAGES_URL = "https://lepela.github.io/bombom-menu/"
+REPO = os.environ.get("GITHUB_REPOSITORY", "daey0ung/bombom-menu")
+REF = os.environ.get("GITHUB_REF_NAME", "codex/dy_modify01")
+REPO_OWNER, REPO_NAME = REPO.split("/", 1)
+PAGES_URL = f"https://{REPO_OWNER}.github.io/{REPO_NAME}/"
 # Pages 배포는 push 후 1분 가량 지연되므로, 알림 카드 이미지는 즉시 제공되는 raw를 쓴다.
-RAW_BASE = f"https://raw.githubusercontent.com/{REPO}/main/docs/"
+RAW_BASE = f"https://raw.githubusercontent.com/{REPO}/{REF}/docs/"
 
 
 def today_kst() -> str:
